@@ -45,3 +45,4 @@ example
 # Binários de compilação local
 *.apk
 crop_cmd.png
+*firebase-adminsdk*.json

@@ -6,6 +6,7 @@ import * as Notifications from 'expo-notifications';
 import * as SplashScreen from 'expo-splash-screen';
 import { AuthProvider, useAuth } from '@/contexts/auth';
 import { registerPushDevice } from '@/services/api';
+import { sseManager } from '@/services/sse';
 import { Colors } from '@/constants/theme';
 
 // Configuração do comportamento de notificações em primeiro plano
@@ -91,6 +92,7 @@ function RootNavigationLayout() {
     }
 
     setupPush();
+    sseManager.start();
 
     // Listener ao clicar na notificação (Deep Linking)
     responseListener.current = Notifications.addNotificationResponseReceivedListener(response => {
@@ -101,6 +103,7 @@ function RootNavigationLayout() {
     });
 
     return () => {
+      sseManager.stop();
       if (responseListener.current) {
         responseListener.current.remove();
       }

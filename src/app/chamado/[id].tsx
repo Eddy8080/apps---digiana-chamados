@@ -21,9 +21,18 @@ import { useLocalSearchParams, router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { apiFetch } from '@/services/api';
+import { sseManager } from '@/services/sse';
 import { useAuth } from '@/contexts/auth';
 import { StatusBadge } from '@/components/StatusBadge';
 import { PriorityBadge } from '@/components/PriorityBadge';
+
+const KANBAN_STAGES = [
+  { key: 'backlog', label: 'Backlog Geral', icon: 'albums-outline', color: '#94a3b8' },
+  { key: 'sprint', label: 'Sprint Atual', icon: 'flash-outline', color: '#38bdf8' },
+  { key: 'em_construcao', label: 'Em Construção', icon: 'construct-outline', color: '#fbbf24' },
+  { key: 'homologacao', label: 'Homologação', icon: 'flask-outline', color: '#a78bfa' },
+  { key: 'concluido', label: 'Concluído', icon: 'checkmark-circle-outline', color: '#34d399' },
+];
 
 interface AnexoItem {
   id: number;
@@ -49,7 +58,12 @@ interface ChamadoDetail {
   status_display: string;
   prioridade: string;
   prioridade_display: string;
-  projeto_info?: { id: number; nome: string };
+  projeto_info?: {
+    id: number;
+    nome: string;
+    status_macro?: string;
+    cliente_nome?: string;
+  };
   sistema_info?: { id: number; nome: string };
   criado_por_info?: { id: number; username: string; nome_completo: string };
   responsavel_info?: { id: number; username: string; nome_completo: string };
@@ -130,6 +144,9 @@ export default function ChamadoDetailScreen() {
   const [selectedImage, setSelectedImage] = useState<{ url: string; nome: string } | null>(null);
   const [sendingResposta, setSendingResposta] = useState(false);
   const [reopening, setReopening] = useState(false);
+  const [updatingKanban, setUpdatingKanban] = useState(false);
+
+  const canEditKanban = user && ['admin', 'gestor', 'dev'].includes(user.user_role);
 
   const fetchChamado = useCallback(async () => {
     if (!id) return;
@@ -150,7 +167,70 @@ export default function ChamadoDetailScreen() {
 
   useEffect(() => {
     fetchChamado();
-  }, [fetchChamado]);
+
+    // Ouvinte em tempo real via SSE: quando este chamado for atualizado no servidor, recarrega os dados instantaneamente
+    const unsubscribe = sseManager.addListener((event, data) => {
+      if (data.chamado_id && String(data.chamado_id) === String(id)) {
+        console.log('[ChamadoDetail] ⚡ Atualização em tempo real recebida via SSE, recarregando...');
+        fetchChamado();
+      }
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, [fetchChamado, id]);
+
+  const handleUpdateKanban = async (newStageKey: string) => {
+    if (!id || updatingKanban || !chamado?.projeto_info) return;
+
+    const previousStage = chamado.projeto_info.status_macro;
+    // Otimista na UI
+    setChamado(prev => {
+      if (!prev || !prev.projeto_info) return prev;
+      return {
+        ...prev,
+        projeto_info: {
+          ...prev.projeto_info,
+          status_macro: newStageKey,
+        },
+      };
+    });
+
+    setUpdatingKanban(true);
+    try {
+      const res = await apiFetch(`/chamados/${id}/`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projeto_status_macro: newStageKey }),
+      });
+
+      if (res.ok) {
+        const updatedData = await res.json();
+        setChamado(updatedData);
+        const stageObj = KANBAN_STAGES.find(s => s.key === newStageKey);
+        Alert.alert('Kanban Atualizado', `Projeto movido para: "${stageObj?.label || newStageKey}"`);
+      } else {
+        // Rollback
+        setChamado(prev => {
+          if (!prev || !prev.projeto_info) return prev;
+          return {
+            ...prev,
+            projeto_info: {
+              ...prev.projeto_info,
+              status_macro: previousStage,
+            },
+          };
+        });
+        const err = await res.json().catch(() => ({}));
+        Alert.alert('Erro', err.detail || 'Não foi possível atualizar a coluna no Kanban.');
+      }
+    } catch (e: any) {
+      Alert.alert('Erro', e.message || 'Falha de conexão ao atualizar o Kanban.');
+    } finally {
+      setUpdatingKanban(false);
+    }
+  };
 
   const handlePickFoto = async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -349,6 +429,73 @@ export default function ChamadoDetailScreen() {
                   </Text>
                 </View>
               </View>
+
+              {/* Card de Gestão de Kanban do Projeto */}
+              {chamado.projeto_info && (
+                <View style={styles.kanbanCard}>
+                  <View style={styles.kanbanHeader}>
+                    <View style={styles.kanbanTitleRow}>
+                      <Ionicons name="grid-outline" size={15} color="#38bdf8" />
+                      <Text style={styles.kanbanTitle} numberOfLines={1}>
+                        Kanban: {chamado.projeto_info.nome}
+                      </Text>
+                    </View>
+                    {updatingKanban && <ActivityIndicator size="small" color="#38bdf8" />}
+                  </View>
+
+                  {chamado.projeto_info.cliente_nome && (
+                    <Text style={styles.kanbanCliente}>
+                      Cliente: {chamado.projeto_info.cliente_nome}
+                    </Text>
+                  )}
+
+                  <Text style={styles.kanbanHelperText}>
+                    {canEditKanban
+                      ? 'Toque para mover o projeto no Kanban:'
+                      : 'Posição do projeto no Kanban:'}
+                  </Text>
+
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={styles.kanbanPillsContainer}>
+                    {KANBAN_STAGES.map(stage => {
+                      const isCurrent = (chamado.projeto_info?.status_macro || 'backlog') === stage.key;
+                      return (
+                        <TouchableOpacity
+                          key={stage.key}
+                          disabled={!canEditKanban || updatingKanban || isCurrent}
+                          onPress={() => handleUpdateKanban(stage.key)}
+                          activeOpacity={0.7}
+                          style={[
+                            styles.kanbanPill,
+                            isCurrent && {
+                              backgroundColor: `${stage.color}22`,
+                              borderColor: stage.color,
+                              borderWidth: 1.5,
+                            },
+                          ]}>
+                          <Ionicons
+                            name={stage.icon as any}
+                            size={13}
+                            color={isCurrent ? stage.color : '#64748b'}
+                          />
+                          <Text
+                            style={[
+                              styles.kanbanPillText,
+                              isCurrent && { color: stage.color, fontWeight: '700' },
+                            ]}>
+                            {stage.label}
+                          </Text>
+                          {isCurrent && (
+                            <View style={[styles.activeDot, { backgroundColor: stage.color }]} />
+                          )}
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </ScrollView>
+                </View>
+              )}
 
               {/* Descrição Inicial */}
               <View style={styles.descBox}>
@@ -1002,5 +1149,69 @@ const styles = StyleSheet.create({
   lightboxImage: {
     width: '100%',
     height: '100%',
+  },
+  // Card do Projeto no Kanban
+  kanbanCard: {
+    backgroundColor: 'rgba(56, 189, 248, 0.06)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(56, 189, 248, 0.2)',
+    padding: 12,
+    marginBottom: 16,
+  },
+  kanbanHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
+  kanbanTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    flex: 1,
+  },
+  kanbanTitle: {
+    color: '#38bdf8',
+    fontSize: 13,
+    fontWeight: '700',
+    flex: 1,
+  },
+  kanbanCliente: {
+    color: '#94a3b8',
+    fontSize: 12,
+    marginBottom: 6,
+  },
+  kanbanHelperText: {
+    color: '#64748b',
+    fontSize: 11,
+    marginBottom: 8,
+  },
+  kanbanPillsContainer: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingVertical: 2,
+  },
+  kanbanPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: '#0a222c',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  kanbanPillText: {
+    color: '#94a3b8',
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  activeDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    marginLeft: 2,
   },
 });
