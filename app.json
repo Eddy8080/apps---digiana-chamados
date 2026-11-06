@@ -21,6 +21,10 @@
       },
       "predictiveBackGestureEnabled": false
     },
+    "notification": {
+      "icon": "./assets/images/notification_icon.png",
+      "color": "#2dd4bf"
+    },
     "web": {
       "output": "server",
       "favicon": "./assets/images/favicon.png"
