@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { View, ActivityIndicator, useColorScheme } from 'react-native';
+import { View, ActivityIndicator, useColorScheme, Platform } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { Stack, router, useSegments } from 'expo-router';
 import * as Notifications from 'expo-notifications';
@@ -57,6 +57,16 @@ function RootNavigationLayout() {
 
     async function setupPush() {
       try {
+        if (Platform.OS === 'android') {
+          await Notifications.setNotificationChannelAsync('default', {
+            name: 'Chamados',
+            importance: Notifications.AndroidImportance.MAX,
+            vibrationPattern: [0, 250, 250, 250],
+            lightColor: '#2dd4bf',
+            sound: 'default',
+          });
+        }
+
         const { status: existingStatus } = await Notifications.getPermissionsAsync();
         let finalStatus = existingStatus;
         if (existingStatus !== 'granted') {

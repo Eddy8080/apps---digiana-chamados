@@ -11,6 +11,7 @@ import {
   Image,
   KeyboardAvoidingView,
   Platform,
+  Modal,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -42,6 +43,7 @@ interface ChamadoDetail {
   id: number;
   titulo: string;
   descricao: string;
+  descricao_limpa?: string;
   status: string;
   status_display: string;
   prioridade: string;
@@ -58,6 +60,34 @@ interface ChamadoDetail {
   anexos: AnexoItem[];
 }
 
+function stripHtml(html?: string): string {
+  if (!html) return '';
+  return html
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .trim();
+}
+
+function isImageFile(filename?: string, mime?: string): boolean {
+  if (mime && mime.toLowerCase().startsWith('image/')) return true;
+  if (!filename) return false;
+  return /\.(png|jpe?g|webp|gif|bmp|heic)$/i.test(filename);
+}
+
+function resolveMediaUrl(url?: string): string {
+  if (!url) return '';
+  if (url.startsWith('http://') || url.startsWith('https://')) return url;
+  const base = 'https://chamados.digianaapp.com.br';
+  return `${base}${url.startsWith('/') ? '' : '/'}${url}`;
+}
+
 export default function ChamadoDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { user } = useAuth();
@@ -66,6 +96,7 @@ export default function ChamadoDetailScreen() {
   const [loading, setLoading] = useState(true);
   const [novaResposta, setNovaResposta] = useState('');
   const [anexoFotoUri, setAnexoFotoUri] = useState<string | null>(null);
+  const [selectedImage, setSelectedImage] = useState<{ url: string; nome: string } | null>(null);
   const [sendingResposta, setSendingResposta] = useState(false);
   const [reopening, setReopening] = useState(false);
 
@@ -291,8 +322,46 @@ export default function ChamadoDetailScreen() {
               {/* Descrição Inicial */}
               <View style={styles.descBox}>
                 <Text style={styles.descLabel}>Descrição:</Text>
-                <Text style={styles.descText}>{chamado.descricao}</Text>
+                <Text style={styles.descText}>{chamado.descricao_limpa || stripHtml(chamado.descricao)}</Text>
               </View>
+
+              {/* Anexos e Evidências do Chamado */}
+              {chamado.anexos && chamado.anexos.length > 0 && (
+                <View style={styles.anexosContainer}>
+                  <View style={styles.anexosHeader}>
+                    <Ionicons name="images-outline" size={15} color="#2dd4bf" />
+                    <Text style={styles.anexosTitle}>
+                      Evidências & Anexos ({chamado.anexos.length})
+                    </Text>
+                  </View>
+                  <View style={styles.anexosGrid}>
+                    {chamado.anexos.map((anexo) => {
+                      const fullUrl = resolveMediaUrl(anexo.url);
+                      const isImg = isImageFile(anexo.nome_original, (anexo as any).tipo_mime);
+                      return isImg ? (
+                        <TouchableOpacity
+                          key={anexo.id}
+                          style={styles.imgCard}
+                          onPress={() => setSelectedImage({ url: fullUrl, nome: anexo.nome_original })}
+                          activeOpacity={0.85}>
+                          <Image source={{ uri: fullUrl }} style={styles.imgThumbnail} resizeMode="cover" />
+                          <View style={styles.imgOverlay}>
+                            <Ionicons name="expand-outline" size={16} color="#ffffff" />
+                          </View>
+                          <Text style={styles.imgCaption} numberOfLines={1}>
+                            {anexo.nome_original}
+                          </Text>
+                        </TouchableOpacity>
+                      ) : (
+                        <View key={anexo.id} style={styles.docCard}>
+                          <Ionicons name="document-attach-outline" size={18} color="#2dd4bf" />
+                          <Text style={styles.docName} numberOfLines={1}>{anexo.nome_original}</Text>
+                        </View>
+                      );
+                    })}
+                  </View>
+                </View>
+              )}
 
               {/* Ações Rápidas de Gestão */}
               {isEquipeTecnica && !isFinalizado && (
@@ -364,14 +433,29 @@ export default function ChamadoDetailScreen() {
                       {/* Anexos da Resposta */}
                       {r.anexos && r.anexos.length > 0 && (
                         <View style={styles.msgAnexos}>
-                          {r.anexos.map((anexo) => (
-                            <View key={anexo.id} style={styles.anexoThumbCard}>
-                              <Ionicons name="document-attach-outline" size={16} color="#2dd4bf" />
-                              <Text style={styles.anexoName} numberOfLines={1}>
-                                {anexo.nome_original}
-                              </Text>
-                            </View>
-                          ))}
+                          {r.anexos.map((anexo) => {
+                            const fullUrl = resolveMediaUrl(anexo.url);
+                            const isImg = isImageFile(anexo.nome_original, (anexo as any).tipo_mime);
+                            return isImg ? (
+                              <TouchableOpacity
+                                key={anexo.id}
+                                style={styles.msgImgThumb}
+                                onPress={() => setSelectedImage({ url: fullUrl, nome: anexo.nome_original })}
+                                activeOpacity={0.85}>
+                                <Image source={{ uri: fullUrl }} style={styles.msgImg} resizeMode="cover" />
+                                <View style={styles.msgImgOverlay}>
+                                  <Ionicons name="expand-outline" size={13} color="#ffffff" />
+                                </View>
+                              </TouchableOpacity>
+                            ) : (
+                              <View key={anexo.id} style={styles.anexoThumbCard}>
+                                <Ionicons name="document-attach-outline" size={16} color="#2dd4bf" />
+                                <Text style={styles.anexoName} numberOfLines={1}>
+                                  {anexo.nome_original}
+                                </Text>
+                              </View>
+                            );
+                          })}
                         </View>
                       )}
                     </View>
@@ -435,6 +519,38 @@ export default function ChamadoDetailScreen() {
           </View>
         </KeyboardAvoidingView>
       </SafeAreaView>
+
+      {/* Lightbox Modal para Visualização em Alta Resolução */}
+      <Modal
+        visible={!!selectedImage}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setSelectedImage(null)}>
+        <View style={styles.lightboxBackdrop}>
+          <SafeAreaView style={styles.lightboxSafeArea}>
+            <View style={styles.lightboxHeader}>
+              <Text style={styles.lightboxTitle} numberOfLines={1}>
+                {selectedImage?.nome || 'Evidência'}
+              </Text>
+              <TouchableOpacity
+                style={styles.lightboxCloseBtn}
+                onPress={() => setSelectedImage(null)}
+                hitSlop={12}>
+                <Ionicons name="close-circle" size={28} color="#ffffff" />
+              </TouchableOpacity>
+            </View>
+            <View style={styles.lightboxImageContainer}>
+              {selectedImage && (
+                <Image
+                  source={{ uri: selectedImage.url }}
+                  style={styles.lightboxImage}
+                  resizeMode="contain"
+                />
+              )}
+            </View>
+          </SafeAreaView>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -714,5 +830,142 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginLeft: 8,
+  },
+  // Anexos do Chamado (Cards & Grid)
+  anexosContainer: {
+    marginTop: 14,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  anexosHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+    gap: 6,
+  },
+  anexosTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#2dd4bf',
+    letterSpacing: 0.3,
+    textTransform: 'uppercase',
+  },
+  anexosGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  imgCard: {
+    width: 100,
+    height: 100,
+    borderRadius: 10,
+    overflow: 'hidden',
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+    borderWidth: 1,
+    borderColor: 'rgba(45, 212, 191, 0.3)',
+    position: 'relative',
+  },
+  imgThumbnail: {
+    width: '100%',
+    height: '100%',
+  },
+  imgOverlay: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    borderRadius: 10,
+    padding: 3,
+  },
+  imgCaption: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.75)',
+    color: '#ffffff',
+    fontSize: 9,
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+    textAlign: 'center',
+  },
+  docCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    maxWidth: '100%',
+    gap: 6,
+  },
+  docName: {
+    color: '#94a3b8',
+    fontSize: 12,
+    flexShrink: 1,
+  },
+  // Anexos em Respostas
+  msgImgThumb: {
+    width: 90,
+    height: 90,
+    borderRadius: 8,
+    overflow: 'hidden',
+    marginTop: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(45, 212, 191, 0.3)',
+    position: 'relative',
+  },
+  msgImg: {
+    width: '100%',
+    height: '100%',
+  },
+  msgImgOverlay: {
+    position: 'absolute',
+    top: 3,
+    right: 3,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    borderRadius: 8,
+    padding: 2,
+  },
+  // Lightbox Modal
+  lightboxBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(3, 15, 20, 0.96)',
+    justifyContent: 'center',
+  },
+  lightboxSafeArea: {
+    flex: 1,
+  },
+  lightboxHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  lightboxTitle: {
+    color: '#ffffff',
+    fontSize: 15,
+    fontWeight: '700',
+    flex: 1,
+    marginRight: 12,
+  },
+  lightboxCloseBtn: {
+    padding: 4,
+  },
+  lightboxImageContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 12,
+  },
+  lightboxImage: {
+    width: '100%',
+    height: '100%',
   },
 });
