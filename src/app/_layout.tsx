@@ -65,8 +65,14 @@ function RootNavigationLayout() {
         }
         if (finalStatus !== 'granted') return;
 
-        const tokenData = await Notifications.getExpoPushTokenAsync().catch(() => null);
+        const tokenData = await Notifications.getExpoPushTokenAsync({
+          projectId: '7dd24128-9199-4c61-a894-156f62cf217d',
+        }).catch(err => {
+          console.warn('[Push] Erro ao obter token Expo:', err);
+          return null;
+        });
         if (tokenData?.data) {
+          console.log('[Push] Token oficial obtido com sucesso:', tokenData.data);
           await registerPushDevice(tokenData.data);
         }
       } catch (e) {

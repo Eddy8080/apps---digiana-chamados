@@ -2,16 +2,16 @@ import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 
 // Resolução inteligente da URL base da API
-// No emulador Android do Android Studio: '10.0.2.2' alcança o localhost do Linux.
-// Em iOS Simulator ou Web: 'localhost'.
+// Em produção / APK Release oficial: conecta à API da Digiana na Oracle Cloud.
+// Em desenvolvimento / testes: conecta ao container Docker local (192.168.1.12:8009 acessível via Wi-Fi e emulador).
 const getDefaultBaseUrl = () => {
   if (process.env.EXPO_PUBLIC_API_URL) {
     return process.env.EXPO_PUBLIC_API_URL;
   }
-  if (Platform.OS === 'android') {
-    return 'http://10.0.2.2:8009/api/v1';
+  if (!__DEV__) {
+    return 'https://chamados.digianaapp.com.br/api/v1';
   }
-  return 'http://localhost:8009/api/v1';
+  return 'http://192.168.1.12:8009/api/v1';
 };
 
 export const API_BASE_URL = getDefaultBaseUrl();
