@@ -1,0 +1,32 @@
+name: EAS Update (OTA)
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  update:
+    name: Despachar atualizações OTA para os aparelhos
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📥 Clonar repositório
+        uses: actions/checkout@v4
+
+      - name: 🟢 Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: 📦 Instalar dependências
+        run: npm ci
+
+      - name: 🚀 Configurar EAS CLI
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: 📲 Publicar atualização OTA pelo ar
+        run: eas update --auto --non-interactive
