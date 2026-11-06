@@ -12,6 +12,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Modal,
+  Linking,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -86,6 +87,36 @@ function resolveMediaUrl(url?: string): string {
   if (url.startsWith('http://') || url.startsWith('https://')) return url;
   const base = 'https://chamados.digianaapp.com.br';
   return `${base}${url.startsWith('/') ? '' : '/'}${url}`;
+}
+
+function renderFormattedContent(text: string) {
+  const clean = stripHtml(text);
+  if (!clean) return null;
+
+  const urlRegex = /(https?:\/\/[^\s]+)/g;
+  const parts = clean.split(urlRegex);
+
+  return (
+    <Text style={styles.msgContent}>
+      {parts.map((part, index) => {
+        if (urlRegex.test(part)) {
+          return (
+            <Text
+              key={index}
+              style={styles.msgLink}
+              onPress={() => {
+                Linking.openURL(part).catch(() => {
+                  Alert.alert('Erro', 'Não foi possível abrir o link.');
+                });
+              }}>
+              {part}
+            </Text>
+          );
+        }
+        return <Text key={index}>{part}</Text>;
+      })}
+    </Text>
+  );
 }
 
 export default function ChamadoDetailScreen() {
@@ -428,7 +459,7 @@ export default function ChamadoDetailScreen() {
                         <Text style={styles.msgDate}>{formatDate(r.criado_em)}</Text>
                       </View>
 
-                      <Text style={styles.msgContent}>{r.conteudo}</Text>
+                      {renderFormattedContent(r.conteudo)}
 
                       {/* Anexos da Resposta */}
                       {r.anexos && r.anexos.length > 0 && (
@@ -749,6 +780,10 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#ffffff',
     lineHeight: 18,
+  },
+  msgLink: {
+    color: '#2dd4bf',
+    textDecorationLine: 'underline',
   },
   msgAnexos: {
     marginTop: 8,
