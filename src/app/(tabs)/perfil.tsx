@@ -14,9 +14,64 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/contexts/auth';
+import * as Notifications from 'expo-notifications';
+import { registerPushDevice } from '@/services/api';
 
 export default function PerfilScreen() {
   const { user, signOut } = useAuth();
+  const [testingPush, setTestingPush] = React.useState(false);
+  const [pushStatusText, setPushStatusText] = React.useState('Toque para testar / conectar');
+
+  const handleTestarPush = async () => {
+    setTestingPush(true);
+    try {
+      if (Platform.OS === 'android') {
+        await Notifications.setNotificationChannelAsync('default', {
+          name: 'Chamados',
+          importance: Notifications.AndroidImportance.MAX,
+          vibrationPattern: [0, 250, 250, 250],
+          lightColor: '#2dd4bf',
+          sound: 'default',
+        });
+      }
+
+      const perm = await Notifications.getPermissionsAsync();
+      let status = perm.status;
+      if (status !== 'granted') {
+        const req = await Notifications.requestPermissionsAsync();
+        status = req.status;
+      }
+      if (status !== 'granted') {
+        setPushStatusText('Permissão negada no Android');
+        Alert.alert('Diagnóstico Push', `Permissão não concedida no Android: ${status}`);
+        return;
+      }
+
+      const tokenData = await Notifications.getExpoPushTokenAsync({
+        projectId: '7dd24128-9199-4c61-a894-156f62cf217d',
+      });
+
+      if (tokenData?.data) {
+        await registerPushDevice(tokenData.data);
+        setPushStatusText('Conectado à VPS');
+        Alert.alert(
+          'Push Conectado!',
+          `Token gerado e salvo no servidor com sucesso!\n\n${tokenData.data.substring(0, 30)}...`
+        );
+      } else {
+        setPushStatusText('Falha ao obter token');
+        Alert.alert('Diagnóstico Push', 'O Expo não retornou dados de token.');
+      }
+    } catch (e: any) {
+      setPushStatusText('Erro no Google FCM');
+      Alert.alert(
+        'Diagnóstico do Android',
+        `Erro ao gerar token:\n\n${e.message || String(e)}\n\n(No Android standalone, o Google Play Services exige a configuração do Firebase/google-services.json)`
+      );
+    } finally {
+      setTestingPush(false);
+    }
+  };
 
   const handleLogout = () => {
     Alert.alert(
@@ -107,13 +162,22 @@ export default function PerfilScreen() {
               </View>
             </View>
 
-            <View style={[styles.infoRow, { borderBottomWidth: 0 }]}>
-              <Ionicons name="notifications-outline" size={18} color="#2dd4bf" style={styles.infoIcon} />
-              <View style={styles.infoTextGroup}>
-                <Text style={styles.infoLabel}>Status Notificações Push</Text>
-                <Text style={[styles.infoValue, { color: '#10b981' }]}>Ativo & Registrado</Text>
+            <TouchableOpacity
+              style={[styles.infoRow, { borderBottomWidth: 0, justifyContent: 'space-between' }]}
+              onPress={handleTestarPush}
+              disabled={testingPush}
+              activeOpacity={0.7}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                <Ionicons name="notifications-outline" size={18} color="#2dd4bf" style={styles.infoIcon} />
+                <View style={styles.infoTextGroup}>
+                  <Text style={styles.infoLabel}>Notificações Push (Toque p/ Testar)</Text>
+                  <Text style={[styles.infoValue, { color: pushStatusText.includes('Conectado') ? '#10b981' : '#f59e0b' }]}>
+                    {testingPush ? 'Testando conexão...' : pushStatusText}
+                  </Text>
+                </View>
               </View>
-            </View>
+              <Ionicons name="refresh-circle-outline" size={22} color="#2dd4bf" />
+            </TouchableOpacity>
           </View>
 
           {/* Configurações e Segurança */}
