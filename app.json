@@ -12,6 +12,7 @@
     },
     "android": {
       "package": "com.digiana.chamados",
+      "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
         "backgroundColor": "#030f14",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
