@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -13,6 +13,8 @@ import {
   Platform,
   Modal,
   Linking,
+  Keyboard,
+  StatusBar as RNStatusBar,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -148,6 +150,22 @@ export default function ChamadoDetailScreen() {
 
   const canEditKanban = user && ['admin', 'gestor', 'dev'].includes(user.user_role);
 
+  const scrollViewRef = useRef<React.ElementRef<typeof ScrollView>>(null);
+
+  useEffect(() => {
+    const showSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      () => {
+        setTimeout(() => {
+          scrollViewRef.current?.scrollToEnd({ animated: true });
+        }, 120);
+      }
+    );
+    return () => {
+      showSub.remove();
+    };
+  }, []);
+
   const fetchChamado = useCallback(async () => {
     if (!id) return;
     try {
@@ -269,7 +287,10 @@ export default function ChamadoDetailScreen() {
       if (res.ok) {
         setNovaResposta('');
         setAnexoFotoUri(null);
-        fetchChamado();
+        await fetchChamado();
+        setTimeout(() => {
+          scrollViewRef.current?.scrollToEnd({ animated: true });
+        }, 150);
       } else {
         const err = await res.json().catch(() => ({}));
         Alert.alert('Erro', err.detail || 'Não foi possível enviar a resposta.');
@@ -391,11 +412,14 @@ export default function ChamadoDetailScreen() {
         </View>
 
         <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={Platform.OS === 'android' ? (RNStatusBar.currentHeight ?? 0) : 0}
           style={{ flex: 1 }}>
           <ScrollView
+            ref={scrollViewRef}
             contentContainerStyle={styles.scrollContent}
             keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
             showsVerticalScrollIndicator={false}>
 
             {/* Card Detalhes do Chamado */}
@@ -677,6 +701,11 @@ export default function ChamadoDetailScreen() {
                 onChangeText={setNovaResposta}
                 cursorColor="#2dd4bf"
                 multiline
+                onFocus={() => {
+                  setTimeout(() => {
+                    scrollViewRef.current?.scrollToEnd({ animated: true });
+                  }, 120);
+                }}
               />
 
               <TouchableOpacity
