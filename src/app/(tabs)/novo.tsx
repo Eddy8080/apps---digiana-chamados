@@ -20,6 +20,7 @@ import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { apiFetch } from '@/services/api';
+import { useAuth } from '@/contexts/auth';
 
 interface ProjetoOption {
   id: number;
@@ -35,7 +36,16 @@ const PRIORIDADES = [
   { key: 'urgente', label: 'Urgente', color: '#ef4444' },
 ];
 
+const STATUS_ENTRADA = [
+  { key: 'aberto', label: 'Aberto', color: '#38bdf8' },
+  { key: 'em_progresso', label: 'Em Progresso', color: '#f59e0b' },
+  { key: 'pendente', label: 'Pendente', color: '#a78bfa' },
+];
+
 export default function NovoChamadoScreen() {
+  const { user } = useAuth();
+  const isEquipeTecnica = Boolean(user && ['admin', 'gestor', 'dev'].includes(user.user_role));
+
   const [projetos, setProjetos] = useState<ProjetoOption[]>([]);
   const [loadingProjetos, setLoadingProjetos] = useState(true);
 
@@ -44,6 +54,7 @@ export default function NovoChamadoScreen() {
   const [titulo, setTitulo] = useState('');
   const [descricao, setDescricao] = useState('');
   const [prioridade, setPrioridade] = useState('media');
+  const [statusInicial, setStatusInicial] = useState('aberto');
   const [imagens, setImagens] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
 
@@ -131,6 +142,7 @@ export default function NovoChamadoScreen() {
         titulo: titulo.trim(),
         descricao: descricao.trim(),
         prioridade,
+        status: isEquipeTecnica ? statusInicial : 'aberto',
       };
       if (selectedProjetoId) payload.projeto = selectedProjetoId;
       if (selectedSistemaId) payload.sistema = selectedSistemaId;
@@ -173,6 +185,7 @@ export default function NovoChamadoScreen() {
             // Limpa formulário
             setTitulo('');
             setDescricao('');
+            setStatusInicial('aberto');
             setImagens([]);
             router.push(`/chamado/${novoChamado.id}` as any);
           },
@@ -306,6 +319,37 @@ export default function NovoChamadoScreen() {
                 })}
               </View>
             </View>
+
+            {/* Status Inicial (apenas Equipe Técnica: Admin, Gestor, Dev) */}
+            {isEquipeTecnica && (
+              <View style={styles.section}>
+                <Text style={styles.label}>Status Inicial</Text>
+                <View style={styles.prioridadeRow}>
+                  {STATUS_ENTRADA.map((st) => {
+                    const isSelected = statusInicial === st.key;
+                    return (
+                      <TouchableOpacity
+                        key={st.key}
+                        style={[
+                          styles.prioridadeBtn,
+                          isSelected && { borderColor: st.color, backgroundColor: `${st.color}20` },
+                        ]}
+                        onPress={() => setStatusInicial(st.key)}
+                        activeOpacity={0.75}>
+                        <View style={[styles.prioridadeDot, { backgroundColor: st.color }]} />
+                        <Text
+                          style={[
+                            styles.prioridadeText,
+                            isSelected && { color: st.color, fontWeight: '700' },
+                          ]}>
+                          {st.label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+            )}
 
             {/* Descrição Detalhada */}
             <View style={styles.section}>

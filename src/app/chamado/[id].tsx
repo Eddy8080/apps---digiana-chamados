@@ -36,6 +36,14 @@ const KANBAN_STAGES = [
   { key: 'concluido', label: 'Concluído', icon: 'checkmark-circle-outline', color: '#34d399' },
 ];
 
+const CHAMADO_STATUS_OPTIONS = [
+  { key: 'aberto', label: 'Aberto', icon: 'radio-button-on-outline', color: '#38bdf8' },
+  { key: 'em_progresso', label: 'Em Progresso', icon: 'play-circle-outline', color: '#f59e0b' },
+  { key: 'pendente', label: 'Pendente', icon: 'pause-circle-outline', color: '#a78bfa' },
+  { key: 'resolvido', label: 'Resolvido', icon: 'checkmark-circle-outline', color: '#10b981' },
+  { key: 'fechado', label: 'Fechado', icon: 'lock-closed-outline', color: '#94a3b8' },
+];
+
 interface AnexoItem {
   id: number;
   nome_original: string;
@@ -147,6 +155,7 @@ export default function ChamadoDetailScreen() {
   const [sendingResposta, setSendingResposta] = useState(false);
   const [reopening, setReopening] = useState(false);
   const [updatingKanban, setUpdatingKanban] = useState(false);
+  const [updatingStatus, setUpdatingStatus] = useState(false);
 
   const canEditKanban = user && ['admin', 'gestor', 'dev'].includes(user.user_role);
 
@@ -333,11 +342,31 @@ export default function ChamadoDetailScreen() {
   };
 
   const handleChangeStatus = (novoStatus: string) => {
-    Alert.alert('Alterar Status', `Deseja mudar o status para "${novoStatus.replace('_', ' ')}"?`, [
+    if (!id || updatingStatus || !chamado || chamado.status === novoStatus) return;
+
+    const statusObj = CHAMADO_STATUS_OPTIONS.find(s => s.key === novoStatus);
+    const statusLabel = statusObj?.label || novoStatus.replace('_', ' ');
+
+    Alert.alert('Alterar Status', `Deseja alterar o status do chamado para "${statusLabel}"?`, [
       { text: 'Cancelar', style: 'cancel' },
       {
         text: 'Confirmar',
         onPress: async () => {
+          const previousStatus = chamado.status;
+          const previousDisplay = chamado.status_display;
+
+          // Atualização otimista
+          setChamado(prev =>
+            prev
+              ? {
+                  ...prev,
+                  status: novoStatus,
+                  status_display: statusLabel,
+                }
+              : prev
+          );
+          setUpdatingStatus(true);
+
           try {
             const res = await apiFetch(`/chamados/${id}/`, {
               method: 'PATCH',
@@ -345,13 +374,35 @@ export default function ChamadoDetailScreen() {
               body: JSON.stringify({ status: novoStatus }),
             });
             if (res.ok) {
-              fetchChamado();
+              const updatedData = await res.json();
+              setChamado(updatedData);
             } else {
+              // Rollback em caso de erro
+              setChamado(prev =>
+                prev
+                  ? {
+                      ...prev,
+                      status: previousStatus,
+                      status_display: previousDisplay,
+                    }
+                  : prev
+              );
               const err = await res.json().catch(() => ({}));
-              Alert.alert('Erro', err.detail || 'Não permitido.');
+              Alert.alert('Erro', err.detail || 'Não foi possível alterar o status.');
             }
           } catch (e: any) {
-            Alert.alert('Erro', e.message);
+            setChamado(prev =>
+              prev
+                ? {
+                    ...prev,
+                    status: previousStatus,
+                    status_display: previousDisplay,
+                  }
+                : prev
+            );
+            Alert.alert('Erro', e.message || 'Falha de conexão ao alterar o status.');
+          } finally {
+            setUpdatingStatus(false);
           }
         },
       },
@@ -391,6 +442,13 @@ export default function ChamadoDetailScreen() {
 
   const isFinalizado = chamado.status === 'resolvido' || chamado.status === 'fechado';
   const isEquipeTecnica = user?.user_role === 'admin' || user?.user_role === 'gestor' || user?.user_role === 'dev';
+  const isResponsavel = Boolean(user && chamado.responsavel_info?.id === user.id);
+  const canCloseChamado = Boolean(
+    user && (user.user_role === 'admin' || user.user_role === 'gestor' || isResponsavel)
+  );
+  const availableStatusOptions = CHAMADO_STATUS_OPTIONS.filter(
+    opt => opt.key !== 'fechado' || canCloseChamado
+  );
 
   return (
     <View style={styles.container}>
@@ -565,25 +623,52 @@ export default function ChamadoDetailScreen() {
                 </View>
               )}
 
-              {/* Ações Rápidas de Gestão */}
-              {isEquipeTecnica && !isFinalizado && (
+              {/* Painel de Alteração de Status do Chamado */}
+              {isEquipeTecnica && (
                 <View style={styles.manageRow}>
-                  <Text style={styles.manageTitle}>Ação Rápida de Status:</Text>
+                  <View style={styles.manageHeader}>
+                    <View style={styles.manageTitleRow}>
+                      <Ionicons name="options-outline" size={15} color="#2dd4bf" />
+                      <Text style={styles.manageTitle}>Alterar Status do Chamado:</Text>
+                    </View>
+                    {updatingStatus && <ActivityIndicator size="small" color="#2dd4bf" />}
+                  </View>
                   <View style={styles.statusButtonsRow}>
-                    {chamado.status !== 'em_progresso' && (
-                      <TouchableOpacity
-                        style={[styles.quickStatusBtn, { borderColor: '#f59e0b' }]}
-                        onPress={() => handleChangeStatus('em_progresso')}>
-                        <Text style={[styles.quickStatusText, { color: '#f59e0b' }]}>Em Progresso</Text>
-                      </TouchableOpacity>
-                    )}
-                    {chamado.status !== 'resolvido' && (
-                      <TouchableOpacity
-                        style={[styles.quickStatusBtn, { borderColor: '#10b981' }]}
-                        onPress={() => handleChangeStatus('resolvido')}>
-                        <Text style={[styles.quickStatusText, { color: '#10b981' }]}>Resolver</Text>
-                      </TouchableOpacity>
-                    )}
+                    {availableStatusOptions.map((opt) => {
+                      const isCurrent = chamado.status === opt.key;
+                      return (
+                        <TouchableOpacity
+                          key={opt.key}
+                          disabled={updatingStatus || isCurrent}
+                          style={[
+                            styles.quickStatusBtn,
+                            { borderColor: isCurrent ? opt.color : 'rgba(255, 255, 255, 0.12)' },
+                            isCurrent && {
+                              backgroundColor: `${opt.color}22`,
+                              borderWidth: 1.5,
+                            },
+                          ]}
+                          onPress={() => handleChangeStatus(opt.key)}
+                          activeOpacity={0.75}>
+                          <Ionicons
+                            name={opt.icon as any}
+                            size={14}
+                            color={isCurrent ? opt.color : '#94a3b8'}
+                          />
+                          <Text
+                            style={[
+                              styles.quickStatusText,
+                              { color: isCurrent ? opt.color : '#cbd5e1' },
+                              isCurrent && { fontWeight: '800' },
+                            ]}>
+                            {opt.label}
+                          </Text>
+                          {isCurrent && (
+                            <View style={[styles.activeDot, { backgroundColor: opt.color }]} />
+                          )}
+                        </TouchableOpacity>
+                      );
+                    })}
                   </View>
                 </View>
               )}
@@ -868,29 +953,44 @@ const styles = StyleSheet.create({
   },
   manageRow: {
     borderTopWidth: 1,
-    borderTopColor: 'rgba(255, 255, 255, 0.06)',
-    paddingTop: 12,
+    borderTopColor: 'rgba(255, 255, 255, 0.08)',
+    paddingTop: 14,
+    marginTop: 4,
+  },
+  manageHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  manageTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
   manageTitle: {
     fontSize: 12,
-    fontWeight: '600',
-    color: '#94a3b8',
-    marginBottom: 8,
+    fontWeight: '700',
+    color: '#e2e8f0',
   },
   statusButtonsRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 8,
   },
   quickStatusBtn: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 11,
+    paddingVertical: 7,
+    borderRadius: 10,
     borderWidth: 1,
-    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
   },
   quickStatusText: {
-    fontSize: 11,
-    fontWeight: '700',
+    fontSize: 12,
+    fontWeight: '600',
   },
   reopenBtn: {
     marginTop: 10,
