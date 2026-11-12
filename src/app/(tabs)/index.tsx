@@ -12,10 +12,11 @@ import {
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/contexts/auth';
 import { apiFetch } from '@/services/api';
+import { sseManager } from '@/services/sse';
 
 interface DashboardStats {
   total: number;
@@ -47,8 +48,19 @@ export default function DashboardScreen() {
     }
   }, []);
 
+  useFocusEffect(
+    useCallback(() => {
+      fetchStats();
+    }, [fetchStats])
+  );
+
   useEffect(() => {
-    fetchStats();
+    const unsubscribe = sseManager.addListener(() => {
+      fetchStats();
+    });
+    return () => {
+      unsubscribe();
+    };
   }, [fetchStats]);
 
   const onRefresh = () => {
@@ -139,7 +151,7 @@ export default function DashboardScreen() {
           {/* Seção de Métricas de Chamados */}
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Visão Geral dos Chamados</Text>
-            <TouchableOpacity onPress={() => navigateToChamadosWithStatus()}>
+            <TouchableOpacity onPress={() => navigateToChamadosWithStatus('todos')}>
               <Text style={styles.sectionLink}>Ver todos</Text>
             </TouchableOpacity>
           </View>
@@ -196,6 +208,30 @@ export default function DashboardScreen() {
                 </View>
                 <Text style={styles.cardNumber}>{stats?.resolvidos ?? 0}</Text>
                 <Text style={styles.cardLabel}>Resolvidos</Text>
+              </TouchableOpacity>
+
+              {/* Card Fechados */}
+              <TouchableOpacity
+                style={[styles.card, styles.cardFechado]}
+                onPress={() => navigateToChamadosWithStatus('fechado')}
+                activeOpacity={0.75}>
+                <View style={[styles.cardIconWrapper, { backgroundColor: 'rgba(148, 163, 184, 0.15)' }]}>
+                  <Ionicons name="lock-closed" size={20} color="#94a3b8" />
+                </View>
+                <Text style={styles.cardNumber}>{stats?.fechados ?? 0}</Text>
+                <Text style={styles.cardLabel}>Fechados</Text>
+              </TouchableOpacity>
+
+              {/* Card Total */}
+              <TouchableOpacity
+                style={[styles.card, styles.cardTotal]}
+                onPress={() => navigateToChamadosWithStatus('todos')}
+                activeOpacity={0.75}>
+                <View style={[styles.cardIconWrapper, { backgroundColor: 'rgba(45, 212, 191, 0.15)' }]}>
+                  <Ionicons name="layers" size={22} color="#2dd4bf" />
+                </View>
+                <Text style={styles.cardNumber}>{stats?.total ?? 0}</Text>
+                <Text style={styles.cardLabel}>Total Geral</Text>
               </TouchableOpacity>
             </View>
           )}
@@ -382,6 +418,12 @@ const styles = StyleSheet.create({
   },
   cardResolvido: {
     borderColor: 'rgba(16, 185, 129, 0.25)',
+  },
+  cardFechado: {
+    borderColor: 'rgba(148, 163, 184, 0.25)',
+  },
+  cardTotal: {
+    borderColor: 'rgba(45, 212, 191, 0.25)',
   },
   cardIconWrapper: {
     width: 40,

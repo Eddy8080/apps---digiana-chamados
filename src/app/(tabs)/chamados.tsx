@@ -13,9 +13,10 @@ import {
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
-import { router, useLocalSearchParams } from 'expo-router';
+import { router, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { apiFetch } from '@/services/api';
+import { sseManager } from '@/services/sse';
 import { StatusBadge } from '@/components/StatusBadge';
 import { PriorityBadge } from '@/components/PriorityBadge';
 
@@ -39,7 +40,8 @@ interface ChamadoItem {
 }
 
 const STATUS_FILTERS = [
-  { key: '', label: 'Todos' },
+  { key: 'ativos', label: 'Ativos' },
+  { key: 'todos', label: 'Todos' },
   { key: 'aberto', label: 'Abertos' },
   { key: 'em_progresso', label: 'Em Progresso' },
   { key: 'pendente', label: 'Pendentes' },
@@ -53,20 +55,29 @@ export default function ChamadosListScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedStatus, setSelectedStatus] = useState<string>(params.status || '');
+  const [selectedStatus, setSelectedStatus] = useState<string>(params.status || 'ativos');
 
-  const fetchChamados = useCallback(async (q: string = '', status: string = '') => {
+  const fetchChamados = useCallback(async (q: string = '', status: string = 'ativos') => {
     try {
       let url = '/chamados/?';
       const queryParams = new URLSearchParams();
       if (q.trim()) queryParams.append('q', q.trim());
-      if (status) queryParams.append('status', status);
+      if (status && status !== 'ativos' && status !== 'todos') {
+        queryParams.append('status', status);
+      }
+      queryParams.append('page_size', '100');
 
       const res = await apiFetch(`${url}${queryParams.toString()}`);
       if (res.ok) {
         const data = await res.json();
         // Se paginado pelo DRF
-        const items = data.results || data;
+        let items: ChamadoItem[] = data.results || data;
+        // Igual ao Digiana Chamados Web: tanto "resolvido" quanto "fechado" encerram o chamado e saem da fila ativa
+        if (status === 'ativos') {
+          items = items.filter(
+            (c) => c.status !== 'resolvido' && c.status !== 'fechado'
+          );
+        }
         setChamados(items);
       }
     } catch (e) {
@@ -78,13 +89,24 @@ export default function ChamadosListScreen() {
   }, []);
 
   useEffect(() => {
-    if (params.status !== undefined) {
+    if (params.status !== undefined && params.status !== '') {
       setSelectedStatus(params.status);
     }
   }, [params.status]);
 
+  useFocusEffect(
+    useCallback(() => {
+      fetchChamados(searchQuery, selectedStatus);
+    }, [fetchChamados, searchQuery, selectedStatus])
+  );
+
   useEffect(() => {
-    fetchChamados(searchQuery, selectedStatus);
+    const unsubscribe = sseManager.addListener(() => {
+      fetchChamados(searchQuery, selectedStatus);
+    });
+    return () => {
+      unsubscribe();
+    };
   }, [fetchChamados, searchQuery, selectedStatus]);
 
   const onRefresh = () => {
